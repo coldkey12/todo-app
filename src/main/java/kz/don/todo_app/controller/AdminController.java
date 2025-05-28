@@ -1,5 +1,10 @@
 package kz.don.todo_app.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.EntityNotFoundException;
 import kz.don.todo_app.dto.TaskResponse;
 import kz.don.todo_app.dto.UserResponse;
@@ -17,6 +22,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/admin")
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "Admin Controller", description = "Endpoints for admin operations")
 public class AdminController {
 
     private final UserRepository userRepository;
@@ -27,6 +33,10 @@ public class AdminController {
         this.taskRepository = taskRepository;
     }
 
+    @Operation(summary = "Get all users", description = "Returns a list of all registered users")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "List of users retrieved successfully")
+    })
     @GetMapping("/users")
     public ResponseEntity<List<UserResponse>> getAllUsers() {
         List<User> users = userRepository.findAll();
@@ -35,10 +45,15 @@ public class AdminController {
                 .toList());
     }
 
+    @Operation(summary = "Update user status", description = "Enable or disable a user account")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "User status updated successfully"),
+            @ApiResponse(responseCode = "404", description = "User not found")
+    })
     @PutMapping("/users/{userId}/status")
     public ResponseEntity<Void> updateUserStatus(
-            @PathVariable UUID userId,
-            @RequestParam boolean enabled) {
+            @Parameter(description = "UUID of the user to update") @PathVariable UUID userId,
+            @Parameter(description = "Set to true to enable, false to disable") @RequestParam boolean enabled) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("User not found"));
         user.setEnabled(enabled);
@@ -46,9 +61,13 @@ public class AdminController {
         return ResponseEntity.ok().build();
     }
 
+    @Operation(summary = "Get all tasks", description = "Returns all tasks, optionally filtered by userId")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "List of tasks retrieved successfully")
+    })
     @GetMapping("/tasks")
     public ResponseEntity<List<TaskResponse>> getAllTasks(
-            @RequestParam(required = false) UUID userId) {
+            @Parameter(description = "Optional UUID of user to filter tasks by") @RequestParam(required = false) UUID userId) {
 
         List<Task> tasks = userId != null
                 ? taskRepository.findByUserId(userId)
