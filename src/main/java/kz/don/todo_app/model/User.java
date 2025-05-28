@@ -39,7 +39,6 @@ public class User implements UserDetails {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-
     @Column(unique = true, nullable = false)
     private String username;
 
@@ -92,6 +91,7 @@ public class User implements UserDetails {
         return true;
     }
 
+    @Column(nullable = false)
     private boolean enabled = true;
 
     @Override

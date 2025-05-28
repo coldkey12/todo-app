@@ -9,7 +9,10 @@ import kz.don.todo_app.repository.RefreshTokenRepository;
 import kz.don.todo_app.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,9 +20,12 @@ import org.springframework.stereotype.Service;
 import kz.don.todo_app.dto.RegisterRequest;
 import kz.don.todo_app.dto.AuthRequest;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.rmi.AccessException;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -31,16 +37,15 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final RefreshTokenRepository refreshTokenRepository;
 
-
-
-    public AuthResponse register(RegisterRequest request) throws AccessException {
-        if (userRepository.findByUsername(request.getUsername())!=null) {
-            throw new AccessException("Username already taken");
+    public AuthResponse register(RegisterRequest request) throws Exception {
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new Exception("Username already taken");
         }
 
         User user = User.builder()
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getPassword()))
+                .enabled(true)
                 .role(RoleEnum.USER)
                 .build();
 
@@ -51,50 +56,97 @@ public class AuthService {
     }
 
     public AuthResponse login(AuthRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(),
-                        request.getPassword()
-                )
-        );
+        log.info("Attempting login for user: {}", request.getUsername());
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getUsername(),
+                            request.getPassword()
+                    )
+            );
 
-        User user = (User) authentication.getPrincipal();
-        log.info("User logged in: {}", user.getUsername());
-
-        return generateAuthResponse(user);
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+            User user = (User) authentication.getPrincipal();
+            log.info("User logged in: {}", user.getUsername());
+            return generateAuthResponse(user);
+        } catch (BadCredentialsException e) {
+            log.error("Bad credentials for user: {}", request.getUsername());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password", e);
+        } catch (Exception e) {
+            log.error("Authentication failed for user: {}", request.getUsername(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Authentication failed", e);
+        }
     }
 
-    public AuthResponse refreshToken(RefreshTokenRequest request) throws Exception {
-        if (!jwtService.validateToken(request.getRefreshToken())) {
-            throw new Exception("Invalid refresh token");
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        try {
+            if (!jwtService.isTokenStructureValid(request.getRefreshToken())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token format");
+            }
+
+            UUID userId = jwtService.getUserIdFromTokenIgnoreExpiration(request.getRefreshToken());
+
+            Optional<RefreshToken> optionalToken = refreshTokenRepository.findByToken(request.getRefreshToken());
+            if (optionalToken.isEmpty()) {
+                optionalToken = refreshTokenRepository.findByUserId(userId);
+            }
+
+            RefreshToken refreshToken = optionalToken.orElseThrow(() ->
+                    new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token not found"));
+
+            if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
+                log.warn("Refresh token expired for user: {}", userId);
+                refreshTokenRepository.delete(refreshToken);
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token expired");
+            }
+
+            if (!jwtService.validateTokenSignature(request.getRefreshToken())) {
+                log.warn("Invalid refresh token signature for user: {}", userId);
+                refreshTokenRepository.delete(refreshToken);
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token signature");
+            }
+
+            User user = refreshToken.getUser();
+            if (user == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid user associated with token");
+            }
+
+            String newAccessToken = jwtService.generateAccessToken(user);
+            String newRefreshToken = jwtService.generateRefreshToken(user);
+
+            refreshToken.setToken(newRefreshToken);
+            refreshToken.setExpiryDate(Instant.now().plusMillis(jwtService.getRefreshExpiration()));
+            refreshTokenRepository.save(refreshToken);
+
+            log.info("Refreshed tokens for user: {}", user.getUsername());
+
+            return AuthResponse.builder()
+                    .accessToken(newAccessToken)
+                    .refreshToken(newRefreshToken)
+                    .userId(user.getId())
+                    .username(user.getUsername())
+                    .role(user.getRole())
+                    .build();
+
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error refreshing token: {}", e.getMessage(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error refreshing token", e);
         }
-
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken());
-        if (refreshToken == null) {
-            throw new Exception("Refresh token not found");
-        }
-
-        if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
-            refreshTokenRepository.delete(refreshToken);
-            throw new Exception("Refresh token expired");
-        }
-
-        User user = refreshToken.getUser();
-
-        return generateAuthResponse(user);
     }
 
     private AuthResponse generateAuthResponse(User user) {
+
         String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
 
-        RefreshToken refreshTokenEntity = RefreshToken.builder()
-                .user(user)
-                .token(refreshToken)
-                .expiryDate(Instant.now().plusMillis(jwtService.getRefreshExpiration()))
-                .build();
+        RefreshToken refreshTokenEntity = refreshTokenRepository.findByUser(user)
+                .orElseGet(() -> RefreshToken.builder().user(user).build());
+
+        refreshTokenEntity.setToken(refreshToken);
+        refreshTokenEntity.setExpiryDate(Instant.now().plusMillis(jwtService.getRefreshExpiration()));
 
         refreshTokenRepository.save(refreshTokenEntity);
 
@@ -107,13 +159,39 @@ public class AuthService {
                 .build();
     }
 
-    public void logout(String refreshToken) {
-        refreshTokenRepository.findByToken(refreshToken);
-        if (refreshToken != null) {
-            refreshTokenRepository.deleteByToken(refreshToken);
-            log.info("User logged out, refresh token deleted: {}", refreshToken);
-        } else {
-            log.warn("Attempted to logout with invalid or non-existent refresh token: {}", refreshToken);
+    @Scheduled(fixedRate = 24 * 60 * 60 * 1000) // Run daily
+    public void cleanExpiredRefreshTokens() {
+        Instant now = Instant.now();
+        List<RefreshToken> expiredTokens = refreshTokenRepository
+                .findByExpiryDateBefore(now);
+
+        if (!expiredTokens.isEmpty()) {
+            log.info("Cleaning up {} expired refresh tokens", expiredTokens.size());
+            refreshTokenRepository.deleteAll(expiredTokens);
+        }
+    }
+
+    public void logout(RefreshTokenRequest request) {
+        try {
+            if (!jwtService.isTokenStructureValid(request.getRefreshToken())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token format");
+            }
+
+            Optional<RefreshToken> refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken());
+            if (refreshToken.isPresent()) {
+                refreshTokenRepository.delete(refreshToken.get());
+                log.info("User logged out successfully");
+            } else {
+                log.warn("Refresh token not found during logout");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
+            }
+
+            SecurityContextHolder.clearContext();
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error during logout: {}", e.getMessage(), e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error during logout", e);
         }
     }
 }

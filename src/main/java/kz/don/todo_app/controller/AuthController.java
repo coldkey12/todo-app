@@ -17,8 +17,6 @@ import kz.don.todo_app.dto.RegisterRequest;
 import kz.don.todo_app.dto.RefreshTokenRequest;
 import kz.don.todo_app.service.AuthService;
 
-import java.rmi.AccessException;
-
 @RestController
 @RequestMapping("/api/auth")
 @Tag(name = "Authentication", description = "Endpoints for user authentication")
@@ -39,7 +37,7 @@ public class AuthController {
                     content = @Content(schema = @Schema(implementation = RegisterRequest.class))
             )
             @Valid @RequestBody RegisterRequest request
-    ) throws AccessException {
+    ) throws Exception {
         return ResponseEntity.ok(authService.register(request));
     }
 
@@ -69,5 +67,21 @@ public class AuthController {
             @Valid @RequestBody RefreshTokenRequest request
     ) throws Exception {
         return ResponseEntity.ok(authService.refreshToken(request));
+    }
+
+    @Operation(summary = "Logout user")
+    @ApiResponse(responseCode = "200", description = "User logged out successfully")
+    @ApiResponse(responseCode = "401", description = "Invalid or missing refresh token")
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Refresh token data",
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = RefreshTokenRequest.class))
+            )
+            @Valid @RequestBody RefreshTokenRequest request
+    ) {
+        authService.logout(request);
+        return ResponseEntity.ok().build();
     }
 }

@@ -100,10 +100,8 @@ public class TaskService {
 
     private User getCurrentUser() {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        if (username == null || username.isEmpty()) {
-            throw new AccessDeniedException("User not authenticated");
-        }
-        return userRepository.findByUsername(username);
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new EntityNotFoundException("User not found"));
     }
 
     private void checkTaskOwnership(Task task) {

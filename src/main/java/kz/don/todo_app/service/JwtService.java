@@ -1,13 +1,17 @@
 package kz.don.todo_app.service;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.SignatureException;
 import kz.don.todo_app.model.User;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.UUID;
 
@@ -21,6 +25,10 @@ public class JwtService {
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
+
+    private SecretKey getSigningKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
 
     public String generateAccessToken(User user) {
         return buildToken(user, accessExpiration);
@@ -39,31 +47,17 @@ public class JwtService {
                 .setClaims(claims)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(SignatureAlgorithm.HS256, secret)
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
-    }
-
-    public boolean validateToken(String token) {
-        try {
-            Jwts.parser().setSigningKey(secret).parseClaimsJws(token);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     public String getUsernameFromToken(String token) {
         return getClaimsFromToken(token).getSubject();
     }
 
-    public UUID getUserIdFromToken(String token) {
-        String userId = (String) getClaimsFromToken(token).get("userId");
-        return UUID.fromString(userId);
-    }
-
     private Claims getClaimsFromToken(String token) {
         return Jwts.parser()
-                .setSigningKey(secret)
+                .setSigningKey(getSigningKey())  // Use getSigningKey() instead of raw secret
                 .parseClaimsJws(token)
                 .getBody();
     }
@@ -89,4 +83,40 @@ public class JwtService {
             return null;
         }
     }
+
+    public boolean isTokenStructureValid(String token) {
+        try {
+            Jwts.parser().setSigningKey(getSigningKey()).parseClaimsJws(token);  // Use getSigningKey()
+            return true;
+        } catch (MalformedJwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public boolean validateTokenSignature(String token) {
+        try {
+            Jwts.parser().setSigningKey(getSigningKey()).parseClaimsJws(token);  // Use getSigningKey()
+            return true;
+        } catch (SignatureException e) {
+            return false;
+        }
+    }
+
+    public UUID getUserIdFromTokenIgnoreExpiration(String token) {
+        try {
+            Claims claims = Jwts.parser()
+                    .setSigningKey(getSigningKey())  // Use getSigningKey()
+                    .parseClaimsJws(token)
+                    .getBody();
+
+            String userId = (String) claims.get("userId");
+            return UUID.fromString(userId);
+        } catch (ExpiredJwtException e) {
+            String userId = (String) e.getClaims().get("userId");
+            return UUID.fromString(userId);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token format");
+        }
+    }
+
 }
