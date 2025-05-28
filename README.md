@@ -3,7 +3,12 @@
 A secure and scalable Todo application built with Spring Boot, JWT-based authentication, and PostgreSQL.
 
 **🌐 Deployed App**: [Google cloud run app](https://todo-app-413057889128.europe-west1.run.app)
+
+**Swagger Documentation** : https://todo-app-413057889128.europe-west1.run.app/swagger-ui.html
+
 **Video of demo**: https://www.loom.com/share/70809eea3e3144ef999ba8a4c5a13ccf?sid=d3413a00-66d3-4165-8a96-e9a7d6a88777
+
+
 
 ---
 
