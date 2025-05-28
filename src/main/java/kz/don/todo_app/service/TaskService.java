@@ -2,6 +2,7 @@ package kz.don.todo_app.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import kz.don.todo_app.dto.TaskResponse;
+import kz.don.todo_app.enums.RoleEnum;
 import kz.don.todo_app.enums.StatusEnum;
 import kz.don.todo_app.model.Task;
 import kz.don.todo_app.dto.TaskRequest;
@@ -107,6 +108,11 @@ public class TaskService {
 
     private void checkTaskOwnership(Task task) {
         User currentUser = getCurrentUser();
+
+        if (currentUser.getRole() == RoleEnum.ADMIN) {
+            return;
+        }
+
         if (!task.getUser().getId().equals(currentUser.getId())) {
             throw new AccessDeniedException("You don't have permission to modify this task");
         }
@@ -122,4 +128,5 @@ public class TaskService {
                 .updatedAt(task.getUpdatedAt())
                 .build();
     }
+
 }

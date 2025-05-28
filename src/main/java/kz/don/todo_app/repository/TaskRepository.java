@@ -14,4 +14,6 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
     List<Task> findByUserOrderByCreatedAtDesc(User currentUser);
 
     List<Task> findByUserAndStatusOrderByCreatedAtDesc(User currentUser, StatusEnum status);
+
+    List<Task> findByUserId(UUID userId);
 }
