@@ -87,14 +87,24 @@ Access Swagger UI at:
 ## 📂 Project Structure
 
 ```text
-src/
- └── main/
-     └── java/com/example/todo/
-         ├── model/        # JPA entities (User, Task, etc.)
-         ├── repository/   # Spring Data JPA repositories
-         ├── service/      # Business logic & JWT utilities
-         ├── config/       # Security & filter configurations
-         └── controller/   # REST API endpoints
+src/main/java/kz/don/todo_app/
+├── application/          # Application services and use cases
+│   └── service/
+├── config/              # Configuration classes
+├── domain/             # Core domain model
+│   ├── entity/         # JPA entities
+│   ├── repository/     # Repository interfaces
+│   └── exception/      # Domain exceptions
+├── infrastructure/     # External implementations
+│   ├── persistence/    # Repository implementations
+│   └── security/       # Security related classes
+│       ├── jwt/
+│       └── config/
+└── web/               # Web layer
+    ├── controller/    # REST controllers
+    ├── dto/          # Data Transfer Objects
+    │   ├── request/
+    │   └── response/
 ```
 
 ---
