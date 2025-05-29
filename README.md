@@ -94,7 +94,6 @@ src/main/java/kz/don/todo_app/
 ├── domain/             # Core domain model
 │   ├── entity/         # JPA entities
 │   ├── repository/     # Repository interfaces
-│   └── exception/      # Domain exceptions
 ├── infrastructure/     # External implementations
 │   ├── persistence/    # Repository implementations
 │   └── security/       # Security related classes
